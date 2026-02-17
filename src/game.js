@@ -924,12 +924,19 @@ export default class Game {
             let placed = false;
             let attempts = 0;
             while (!placed && attempts < 20) {
-                const r = Math.floor(Math.random() * this.rows);
-                const c = 3 + Math.floor(Math.random() * 3); // Cols 3-5
+                // Scripted Boss at Stage 4 (Spawns at furthest corner 5,5)
+                const isBossSpawn = (this.battleLevel === 4 && i === 0);
+                const type = isBossSpawn ? 'kitchen_demon' : 'trash';
+
+                let r, c;
+                if (isBossSpawn) {
+                    c = 5; r = 5;
+                } else {
+                    r = Math.floor(Math.random() * this.rows);
+                    c = 3 + Math.floor(Math.random() * 3); // Cols 3-5
+                }
 
                 if (!this.getUnitAt(c, r)) {
-                    // Scripted Boss at Stage 4
-                    const type = (this.battleLevel === 4 && i === 0) ? 'kitchen_demon' : 'trash';
                     const enemy = this.addUnit(type, c, r, 'enemy');
 
                     const targetLevel = Math.max(1, Math.floor(this.battleLevel / 1.5));

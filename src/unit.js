@@ -23,10 +23,10 @@ export default class Unit {
         // Custom Stats
         switch (type) {
             case 'trash':
-                this.maxHp = 25; this.attack = 5; this.defense = 1; this.moveRange = 3; // Significantly Buffed
+                this.maxHp = 25; this.attack = 5; this.defense = 1; this.moveRange = 1; // Significantly Buffed
                 break;
             case 'kitchen_demon':
-                this.maxHp = 70; this.attack = 8; this.defense = 2; this.moveRange = 3; // BOSS
+                this.maxHp = 70; this.attack = 8; this.defense = 2; this.moveRange = 1; // BOSS
                 break;
             case 'egg':
                 this.maxHp = 12; this.attack = 1; this.defense = 0; this.moveRange = 4; // Fast
