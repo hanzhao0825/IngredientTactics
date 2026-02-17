@@ -917,8 +917,9 @@ export default class Game {
             this.units.push(u);
         });
 
-        // 2. Generate New Enemies (Deterministic count, random positions)
-        const enemyCount = Math.min(8, 2 + Math.floor(this.battleLevel / 3));
+        // 2. Generate New Enemies (Refined scaling)
+        let enemyCount = Math.min(8, 2 + Math.floor(this.battleLevel / 2));
+
         for (let i = 0; i < enemyCount; i++) {
             let placed = false;
             let attempts = 0;
@@ -927,7 +928,10 @@ export default class Game {
                 const c = 3 + Math.floor(Math.random() * 3); // Cols 3-5
 
                 if (!this.getUnitAt(c, r)) {
-                    const enemy = this.addUnit('trash', c, r, 'enemy');
+                    // Scripted Boss at Stage 4
+                    const type = (this.battleLevel === 4 && i === 0) ? 'kitchen_demon' : 'trash';
+                    const enemy = this.addUnit(type, c, r, 'enemy');
+
                     const targetLevel = Math.max(1, Math.floor(this.battleLevel / 1.5));
                     while (enemy.level < targetLevel) {
                         enemy.upgrade();

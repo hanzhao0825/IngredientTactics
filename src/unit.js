@@ -23,7 +23,10 @@ export default class Unit {
         // Custom Stats
         switch (type) {
             case 'trash':
-                this.maxHp = 20; this.attack = 5; this.defense = 1; this.moveRange = 3; // Slightly nerfed HP
+                this.maxHp = 25; this.attack = 5; this.defense = 1; this.moveRange = 3; // Significantly Buffed
+                break;
+            case 'kitchen_demon':
+                this.maxHp = 70; this.attack = 8; this.defense = 2; this.moveRange = 3; // BOSS
                 break;
             case 'egg':
                 this.maxHp = 12; this.attack = 1; this.defense = 0; this.moveRange = 4; // Fast
@@ -64,6 +67,7 @@ export default class Unit {
     }
 
     getColor() {
+        if (this.type === 'kitchen_demon') return '#8b0000'; // Boss Red
         if (this.owner === 'enemy') return '#555';
         switch (this.type) {
             case 'potato': return '#d2b48c'; // Tan

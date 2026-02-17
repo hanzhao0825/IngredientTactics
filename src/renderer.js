@@ -64,7 +64,8 @@ export default class Renderer {
         if (cx === undefined) cx = unit.visualCol * this.tileSize + this.tileSize / 2;
         if (cy === undefined) cy = unit.visualRow * this.tileSize + this.tileSize / 2;
 
-        const r = this.tileSize * 0.4;
+        let r = this.tileSize * 0.4;
+        if (unit.type === 'kitchen_demon') r *= 1.5; // Kitchen Demon is huge
 
         // Turn over? Darken
         if (unit.isTurnOver() && unit.owner === 'player') {
