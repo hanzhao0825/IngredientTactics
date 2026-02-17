@@ -1,0 +1,16 @@
+.DS_Store
+node_modules/
+.gemini/
+__pycache__/
+*.pyc
+.env
+brain/
+logs/
+task.md
+brainstorming.md
+design_doc.md
+walkthrough.md
+implementation_plan.md
+media/
+screenshots/
+recording/
