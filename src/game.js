@@ -47,6 +47,8 @@ export default class Game {
         // Input
         this.canvas.addEventListener('click', e => this.handleClick(e));
         this.canvas.addEventListener('mousemove', e => this.handleMouseMove(e));
+        this.canvas.addEventListener('touchstart', e => this.handleTouch(e), { passive: false });
+        this.canvas.style.touchAction = 'none'; // Prevent double-tap zoom
 
         // Init
         this.initLevel();
@@ -159,43 +161,43 @@ export default class Game {
 
     // --- INPUT ---
 
+    getCanvasScale() {
+        const rect = this.canvas.getBoundingClientRect();
+        return {
+            x: this.canvas.width / rect.width,
+            y: this.canvas.height / rect.height
+        };
+    }
+
     handleMouseMove(e) {
         const rect = this.canvas.getBoundingClientRect();
-        this.mouseX = e.clientX - rect.left;
-        this.mouseY = e.clientY - rect.top;
+        const scale = this.getCanvasScale();
+
+        this.mouseX = (e.clientX - rect.left) * scale.x;
+        this.mouseY = (e.clientY - rect.top) * scale.y;
+
         this.hoverCol = Math.floor(this.mouseX / this.tileSize);
         this.hoverRow = Math.floor(this.mouseY / this.tileSize);
 
         // Ghost Recipe Logic
         this.ghostPreview = null;
         if (this.selectedUnit && this.state === 'MOVE') {
-            // If we moved selected unit here, would it form a recipe?
+            // ... (rest of recipe logic remains same)
             const u = this.selectedUnit;
-
-            // CD Check
             if (u.recipeCooldown > 0) return;
-
-            // Check neighbors of hover tile
             const neighbors = [
                 { c: this.hoverCol + 1, r: this.hoverRow },
                 { c: this.hoverCol - 1, r: this.hoverRow },
                 { c: this.hoverCol, r: this.hoverRow + 1 },
                 { c: this.hoverCol, r: this.hoverRow - 1 }
             ];
-
             for (const n of neighbors) {
                 const neighbor = this.getUnitAt(n.c, n.r);
                 if (neighbor && neighbor !== u && neighbor.owner === 'player') {
-                    // CD Check Neighbor
                     if (neighbor.recipeCooldown > 0) continue;
-
                     const recipe = this.recipeSystem.findRecipe(u.type, neighbor.type);
                     if (recipe) {
-                        this.ghostPreview = {
-                            col: this.hoverCol,
-                            row: this.hoverRow,
-                            recipe: recipe
-                        };
+                        this.ghostPreview = { col: this.hoverCol, row: this.hoverRow, recipe: recipe };
                         break;
                     }
                 }
@@ -205,10 +207,8 @@ export default class Game {
         // AOE Targeting Preview
         this.aoeHighlights = [];
         if (this.state === 'TARGETING' && this.currentRecipe && this.currentRecipe.type === 'aoe') {
-            // Check if hover cell is within attack highlights
             const isValidTarget = this.highlights.find(h => h.col === this.hoverCol && h.row === this.hoverRow);
             if (isValidTarget) {
-                // Add Cross Pattern
                 const splash = [
                     { col: this.hoverCol, row: this.hoverRow },
                     { col: this.hoverCol + 1, row: this.hoverRow },
@@ -218,17 +218,37 @@ export default class Game {
                 ];
                 splash.forEach(s => {
                     if (this.grid.isValid(s.col, s.row)) {
-                        this.aoeHighlights.push({ col: s.col, row: s.row, color: 'rgba(255, 165, 0, 0.5)' }); // Orange
+                        this.aoeHighlights.push({ col: s.col, row: s.row, color: 'rgba(255, 165, 0, 0.5)' });
                     }
                 });
             }
         }
     }
 
+    handleTouch(e) {
+        // Prevent scrolling while playing
+        if (e.cancelable) e.preventDefault();
+        const touch = e.changedTouches[0];
+        const rect = this.canvas.getBoundingClientRect();
+        const scale = this.getCanvasScale();
+
+        const x = (touch.clientX - rect.left) * scale.x;
+        const y = (touch.clientY - rect.top) * scale.y;
+
+        this.processClick(x, y);
+    }
+
     handleClick(e) {
         const rect = this.canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
+        const scale = this.getCanvasScale();
+
+        const x = (e.clientX - rect.left) * scale.x;
+        const y = (e.clientY - rect.top) * scale.y;
+
+        this.processClick(x, y);
+    }
+
+    processClick(x, y) {
         const col = Math.floor(x / this.tileSize);
         const row = Math.floor(y / this.tileSize);
 
