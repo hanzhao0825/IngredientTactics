@@ -23,7 +23,7 @@ export default class Unit {
         // Custom Stats
         switch (type) {
             case 'trash':
-                this.maxHp = 25; this.attack = 5; this.defense = 1; this.moveRange = 1; // Significantly Buffed
+                this.maxHp = 20; this.attack = 5; this.defense = 0; this.moveRange = 1; // Significantly Buffed
                 break;
             case 'kitchen_demon':
                 this.maxHp = 70; this.attack = 8; this.defense = 2; this.moveRange = 1; // BOSS
@@ -60,6 +60,9 @@ export default class Unit {
 
         // Visual
         this.color = this.getColor();
+        this.animOffset = { x: 0, y: 0 };
+        this.attackAnimTimer = 0; // 0 to 1
+        this.attackDir = { x: 0, y: 0 };
     }
 
     getName() {

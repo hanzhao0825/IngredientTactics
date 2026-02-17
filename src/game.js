@@ -2,6 +2,7 @@ import Grid from './grid.js';
 import Unit from './unit.js';
 import Renderer from './renderer.js';
 import { RecipeSystem, RECIPES, INGREDIENT_NAMES } from './recipes.js';
+import AudioManager from './audio.js';
 
 export default class Game {
     constructor(canvas, ctx) {
@@ -11,12 +12,18 @@ export default class Game {
         // Config
         this.cols = 6;
         this.rows = 6;
-        this.tileSize = 80;
+
+        // High DPI Support
+        this.setupCanvas();
+
+        // Calculate tileSize to fill available CSS height
+        this.tileSize = Math.floor(this.height / this.rows * 0.9);
 
         // Systems
         this.grid = new Grid(this.cols, this.rows);
         this.renderer = new Renderer(this.ctx, this.tileSize);
         this.recipeSystem = new RecipeSystem();
+        this.audio = new AudioManager();
         this.units = [];
         this.gold = 0;
         this.benchUnits = []; // Store Unit instances
@@ -34,6 +41,9 @@ export default class Game {
         this.aoeHighlights = []; // For AOE splash preview
         this.ghostPreview = null; // For recipe preview
 
+        this.cutinData = null; // For skill animations
+        this.cutinTimer = 0;
+
         // UI Wrapper
         this.uiLayer = document.createElement('div');
         this.uiLayer.style.position = 'absolute';
@@ -45,9 +55,23 @@ export default class Game {
         document.body.appendChild(this.uiLayer);
 
         // Input
-        this.canvas.addEventListener('click', e => this.handleClick(e));
+        this.canvas.addEventListener('click', e => {
+            // Initialize audio on first click (browser autoplay policy)
+            if (!this.audio.isInitialized) {
+                this.audio.init();
+                // Try to load external BGM, fallback to procedural if not found
+                this.audio.playBGM('audio/bgm.mp3');
+            }
+            this.handleClick(e);
+        });
         this.canvas.addEventListener('mousemove', e => this.handleMouseMove(e));
-        this.canvas.addEventListener('touchstart', e => this.handleTouch(e), { passive: false });
+        this.canvas.addEventListener('touchstart', e => {
+            if (!this.audio.isInitialized) {
+                this.audio.init();
+                this.audio.playBGM('audio/bgm.mp3');
+            }
+            this.handleTouch(e);
+        }, { passive: false });
         this.canvas.style.touchAction = 'none'; // Prevent double-tap zoom
 
         // Init
@@ -55,6 +79,9 @@ export default class Game {
 
         // End Turn Button
         this.createEndTurnButton();
+
+        // Audio Toggle Button
+        this.createAudioToggle();
 
         // Initial UI Refresh (Shows Level 1 HUD)
         this.closeUI();
@@ -77,6 +104,24 @@ export default class Game {
     }
 
     update(dt) {
+        if (this.state === 'CUTIN') {
+            this.cutinTimer -= dt / 1000;
+            if (this.cutinTimer <= 0) {
+                this.cutinTimer = 0;
+                // Execute the skill effect
+                if (this.cutinData && this.cutinData.onFinish) {
+                    this.cutinData.onFinish();
+                    this.cutinData = null;
+                }
+                // CRITICAL: Restore state to IDLE after animation
+                this.state = 'IDLE';
+                // Don't return here - let the game continue
+            } else {
+                // Only pause game logic while animation is still playing
+                return;
+            }
+        }
+
         // Animation Interpolation
         const speed = 10 * (dt / 1000); // 10 tiles per second approx
         this.units.forEach(u => {
@@ -88,11 +133,26 @@ export default class Game {
 
             if (Math.abs(dc) < 0.05) u.visualCol = u.col;
             else u.visualCol += dc * 0.2;
+
+            // Attack Animation (Bump)
+            if (u.attackAnimTimer > 0) {
+                u.attackAnimTimer -= 5 * (dt / 1000); // Duration approx 200ms
+                if (u.attackAnimTimer <= 0) {
+                    u.attackAnimTimer = 0;
+                    u.animOffset = { x: 0, y: 0 };
+                } else {
+                    // Sine curve: 0 to 1 back to 0
+                    const progress = Math.sin(u.attackAnimTimer * Math.PI);
+                    const bumpDist = this.tileSize * 0.4;
+                    u.animOffset.x = u.attackDir.x * progress * bumpDist;
+                    u.animOffset.y = u.attackDir.y * progress * bumpDist;
+                }
+            }
         });
     }
 
     draw() {
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.clearRect(0, 0, this.width, this.height);
 
         if (this.state === 'SHOP') {
             this.drawShop();
@@ -100,6 +160,10 @@ export default class Game {
         }
 
         this.renderer.draw(this.grid, this.units, this.highlights);
+
+        if (this.state === 'CUTIN' && this.cutinData) {
+            this.renderer.drawCutin(this.cutinData, this.cutinTimer);
+        }
 
         // Draw AOE Highlights
         if (this.aoeHighlights.length > 0) {
@@ -163,8 +227,8 @@ export default class Game {
     getCanvasScale() {
         const rect = this.canvas.getBoundingClientRect();
         return {
-            x: this.canvas.width / rect.width,
-            y: this.canvas.height / rect.height
+            x: this.width / rect.width,
+            y: this.height / rect.height
         };
     }
 
@@ -322,6 +386,9 @@ export default class Game {
                 // Perform Merge
                 targetUnit.upgrade();
                 this.renderer.addFloatingText("MERGE!", col, row, 'gold');
+
+                // Play merge sound
+                this.audio.playSFX('merge');
 
                 // Remove selected unit
                 if (isFromBench) {
@@ -517,12 +584,44 @@ export default class Game {
         const partner = this.actionPartner;
         const type = this.actionType === 'SKILL' && this.currentRecipe ? this.currentRecipe.type : 'damage';
 
+        // CRITICAL: Set state flags IMMEDIATELY to prevent double actions
+        source.hasAttacked = true;
+        source.hasMoved = true;
+        this.selectedUnit = null;
+        this.highlights = [];
+        this.aoeHighlights = [];
+        this.state = 'IDLE';
+
+        if (this.actionType === 'SKILL' && this.currentRecipe) {
+            this.state = 'CUTIN';
+            this.cutinTimer = 1.0; // 1 second
+            this.cutinData = {
+                sourceType: source.type,
+                partnerType: partner ? partner.type : null,
+                recipeName: this.currentRecipe.name,
+                onFinish: () => {
+                    this.executeActionEffect(source, partner, target, type);
+                }
+            };
+        } else {
+            // Normal Attack Animation
+            this.triggerAttackAnimation(source, target);
+            setTimeout(() => {
+                this.executeActionEffect(source, partner, target, type);
+            }, 100);
+        }
+    }
+
+    executeActionEffect(source, partner, target, type) {
         let power = source.attack;
 
         if (this.actionType === 'SKILL') {
             const partnerAtk = partner ? partner.attack : 0;
             power = Math.floor((source.attack + partnerAtk) * this.currentRecipe.powerRatio);
             this.renderer.addFloatingText(this.currentRecipe.name + "!", source.col, source.row, 'gold');
+
+            // SFX for skill
+            this.audio.playSFX('skill');
 
             // Set Cooldown
             source.recipeCooldown = source.maxRecipeCooldown;
@@ -558,21 +657,17 @@ export default class Game {
                 this.renderer.addFloatingText("眩晕!", target.col, target.row, 'yellow');
                 break;
             case 'shield':
-                // Temp HP or similar. For now just heal overhead
                 target.hp += power;
                 this.renderer.addFloatingText(`+${power} Shield`, target.col, target.row, 'cyan');
                 break;
         }
 
-        source.hasAttacked = true;
-        source.hasMoved = true; // Ensure logic
+        // Clear highlights and targeting state
         this.highlights = [];
         this.aoeHighlights = [];
-        this.selectedUnit = null;
-        this.state = 'IDLE';
 
-        // Check Win after player action
-        this.checkWinCondition();
+        // Check Win after short delay for effects
+        setTimeout(() => this.checkWinCondition(), 200);
     }
 
     dealDamage(target, amount) {
@@ -580,6 +675,9 @@ export default class Game {
         const finalDamage = Math.max(1, amount - (target.defense || 0));
         target.hp -= finalDamage;
         this.renderer.addFloatingText(`-${finalDamage}`, target.col, target.row, 'red');
+
+        // SFX for hit
+        this.audio.playSFX('hit');
 
         // Check Dead
         if (target.hp <= 0) {
@@ -642,6 +740,7 @@ export default class Game {
         this.aoeHighlights = [];
         this.createEndTurnButton(); // Refill End Turn
         this.createRecipeBookButton(); // Refill Recipe Book
+        this.createAudioToggle(); // Refill Audio Toggle
         this.updateLevelDisplay(); // Refill Level Display
     }
 
@@ -706,6 +805,27 @@ export default class Game {
         this.uiLayer.appendChild(btn);
     }
 
+    createAudioToggle() {
+        const btn = document.createElement('button');
+        btn.innerText = "🔊";
+        btn.style.position = 'absolute';
+        btn.style.bottom = '10px';
+        btn.style.left = '50%';
+        btn.style.transform = 'translateX(-50%)';
+        btn.style.pointerEvents = 'auto';
+        btn.style.padding = '8px 16px';
+        btn.style.fontSize = '20px';
+        btn.style.background = 'rgba(0, 0, 0, 0.7)';
+        btn.style.border = '2px solid #ffd700';
+        btn.style.borderRadius = '50%';
+        btn.style.cursor = 'pointer';
+        btn.onclick = () => {
+            const isMuted = this.audio.toggleMute();
+            btn.innerText = isMuted ? "🔇" : "🔊";
+        };
+        this.uiLayer.appendChild(btn);
+    }
+
     endTurn() {
         if (this.turn === 'PLAYER') {
             this.turn = 'ENEMY';
@@ -763,7 +883,11 @@ export default class Game {
             // 3. Attack (if in range 1)
             distToTarget = Math.abs(target.col - enemy.col) + Math.abs(target.row - enemy.row);
             if (distToTarget <= 1) {
-                this.dealDamage(target, enemy.attack);
+                this.triggerAttackAnimation(enemy, target);
+                // Delay damage to sync with bump
+                setTimeout(() => this.dealDamage(target, enemy.attack), 100);
+                // Wait for animation to finish
+                await new Promise(r => setTimeout(r, 400));
             }
         }
 
@@ -771,11 +895,22 @@ export default class Game {
         setTimeout(() => {
             // Check Win Condition
             if (!this.checkWinCondition()) {
+                // Reset player units for their turn
                 this.units.filter(u => u.owner === 'player').forEach(u => u.resetTurn());
+                // Reset enemy units to decrement stun counters
+                this.units.filter(u => u.owner === 'enemy').forEach(u => u.resetTurn());
                 this.turn = 'PLAYER';
                 this.state = 'IDLE';
             }
         }, 500);
+    }
+
+    triggerAttackAnimation(source, target) {
+        source.attackAnimTimer = 1.0;
+        const dx = target.col - source.col;
+        const dy = target.row - source.row;
+        const mag = Math.sqrt(dx * dx + dy * dy) || 1;
+        source.attackDir = { x: dx / mag, y: dy / mag };
     }
 
     findBestMove(unit, target) {
@@ -853,6 +988,9 @@ export default class Game {
         this.selectedUnit = null;
         this.closeUI(); // Clear combat UI
 
+        // Play victory sound
+        this.audio.playSFX('win');
+
         // Award Gold for Win
         this.gold += 10;
         // Maybe some notification?
@@ -914,6 +1052,8 @@ export default class Game {
             u.visualRow = row;
             u.hp = u.maxHp;
             u.resetTurn();
+            // Reset skill cooldowns for new battle
+            u.recipeCooldown = 0;
             this.units.push(u);
         });
 
@@ -955,20 +1095,20 @@ export default class Game {
     drawShop() {
         // Dark BG
         this.ctx.fillStyle = 'rgba(0,0,0,0.9)';
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.fillRect(0, 0, this.width, this.height);
 
         // Title
         this.ctx.fillStyle = 'gold';
         this.ctx.font = 'bold 30px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText(`料理商店 - 金币: ${this.gold}`, this.canvas.width / 2, 50);
+        this.ctx.fillText(`料理商店 - 金币: ${this.gold}`, this.width / 2, 50);
 
         // Cards
         const cardW = 150;
         const cardH = 280; // Taller for recipes
         const gap = 20;
-        const startX = (this.canvas.width - (3 * cardW + 2 * gap)) / 2;
-        const startY = 60; // Moved up slightly
+        const startX = (this.width - (3 * cardW + 2 * gap)) / 2;
+        const startY = 80; // Give more space for title
 
         this.shopCards.forEach((card, i) => {
             const x = startX + i * (cardW + gap);
@@ -980,16 +1120,30 @@ export default class Game {
             this.ctx.strokeStyle = '#fff';
             this.ctx.strokeRect(x, y, cardW, cardH);
 
-            // Icon (Circle/Image)
+            // Icon (Base Circle for better visibility)
             const cx = x + cardW / 2;
             const cy = y + 60;
+            const unitColor = this.getUnitColor(card.type);
 
-            // Re-use unit drawing logic slightly?
-            // Just draw manually for now
-            this.ctx.fillStyle = this.getUnitColor(card.type);
+            // Always draw a base circle
+            this.ctx.fillStyle = unitColor;
+            this.ctx.globalAlpha = 0.3; // Subdued behind image
             this.ctx.beginPath();
             this.ctx.arc(cx, cy, 30, 0, Math.PI * 2);
             this.ctx.fill();
+            this.ctx.globalAlpha = 1.0;
+
+            // Draw Image if loaded
+            const img = this.renderer.images[card.type];
+            if (img && img.complete && img.naturalWidth > 0) {
+                this.renderer.drawImageCentered(img, cx, cy, 60);
+            } else {
+                // Solid circle if no image
+                this.ctx.fillStyle = unitColor;
+                this.ctx.beginPath();
+                this.ctx.arc(cx, cy, 30, 0, Math.PI * 2);
+                this.ctx.fill();
+            }
 
             // Text
             this.ctx.fillStyle = '#fff';
@@ -1028,16 +1182,17 @@ export default class Game {
 
         // Reroll Button
         this.ctx.fillStyle = '#f39c12';
-        this.ctx.fillRect(this.canvas.width / 2 - 100, 350, 200, 40);
+        this.ctx.fillRect(this.width / 2 - 100, this.height - 140, 200, 40);
         this.ctx.fillStyle = '#fff';
         this.ctx.font = 'bold 20px Arial';
-        this.ctx.fillText(`刷新 (2G)`, this.canvas.width / 2, 377);
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText(`刷新 (2G)`, this.width / 2, this.height - 113);
 
         // Next Battle Button
         this.ctx.fillStyle = '#3498db';
-        this.ctx.fillRect(this.canvas.width / 2 - 100, 410, 200, 40);
+        this.ctx.fillRect(this.width / 2 - 100, this.height - 80, 200, 40);
         this.ctx.fillStyle = '#fff';
-        this.ctx.fillText(`进入下一关`, this.canvas.width / 2, 437);
+        this.ctx.fillText(`进入下一关`, this.width / 2, this.height - 53);
     }
 
     handleShopClick(x, y) {
@@ -1050,9 +1205,11 @@ export default class Game {
             }
         }
 
-        const cx = this.canvas.width / 2;
-        if (x >= cx - 100 && x <= cx + 100 && y >= 350 && y <= 390) this.rerollShop();
-        if (x >= cx - 100 && x <= cx + 100 && y >= 410 && y <= 450) this.nextBattle();
+        const cx = this.width / 2;
+        const rerollY = this.height - 140;
+        const nextY = this.height - 80;
+        if (x >= cx - 100 && x <= cx + 100 && y >= rerollY && y <= rerollY + 40) this.rerollShop();
+        if (x >= cx - 100 && x <= cx + 100 && y >= nextY && y <= nextY + 40) this.nextBattle();
     }
 
     drawBench() {
@@ -1183,5 +1340,28 @@ export default class Game {
             case 'garlic': return '#f5f5dc';
             default: return '#888';
         }
+    }
+
+    setupCanvas() {
+        // Handle High DPI displays (Retina)
+        const dpr = window.devicePixelRatio || 1;
+        const rect = this.canvas.getBoundingClientRect();
+
+        // Use the CSS size from the stylesheet
+        const width = rect.width || 800;
+        const height = rect.height || 600;
+
+        // Set the internal buffer size
+        this.canvas.width = width * dpr;
+        this.canvas.height = height * dpr;
+
+        // Scale context so we can still use CSS pixels for positioning
+        this.ctx.scale(dpr, dpr);
+
+        // Store standard size for logic
+        this.width = width;
+        this.height = height;
+
+        console.log(`Canvas setup: ${width}x${height} @ ${dpr}x`);
     }
 }

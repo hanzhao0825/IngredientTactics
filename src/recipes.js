@@ -5,7 +5,7 @@ export const INGREDIENT_NAMES = {
     'egg': '鸡蛋',
     'onion': '洋葱',
     'garlic': '大蒜',
-    'trash': '边角料',
+    'trash': '厨余垃圾',
     'kitchen_demon': '厨余恶魔'
 };
 

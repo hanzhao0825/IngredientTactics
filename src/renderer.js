@@ -10,13 +10,32 @@ export default class Renderer {
     }
 
     preloadImages() {
-        const types = ['potato', 'pork', 'tomato', 'egg', 'onion', 'garlic', 'trash'];
+        const types = ['potato', 'pork', 'tomato', 'egg', 'onion', 'garlic', 'trash', 'kitchen_demon'];
         types.forEach(type => {
             const img = new Image();
             img.src = `img/${type}.png`;
             img.onload = () => { this.images[type] = img; };
             // No error handler needed, plain check in draw
         });
+    }
+
+    drawImageCentered(img, cx, cy, maxSize) {
+        if (!img || !img.complete || img.naturalWidth === 0) return;
+
+        const imgRatio = img.naturalWidth / img.naturalHeight;
+        let w, h;
+
+        if (imgRatio > 1) {
+            // Wide image
+            w = maxSize;
+            h = maxSize / imgRatio;
+        } else {
+            // Tall or square image
+            h = maxSize;
+            w = maxSize * imgRatio;
+        }
+
+        this.ctx.drawImage(img, cx - w / 2, cy - h / 2, w, h);
     }
 
     draw(grid, units, highlights = []) {
@@ -61,21 +80,29 @@ export default class Renderer {
     drawUnit(unit, cx, cy) {
         if (unit.hp <= 0) return;
 
-        if (cx === undefined) cx = unit.visualCol * this.tileSize + this.tileSize / 2;
-        if (cy === undefined) cy = unit.visualRow * this.tileSize + this.tileSize / 2;
+        if (cx === undefined) cx = unit.visualCol * this.tileSize + this.tileSize / 2 + (unit.animOffset?.x || 0);
+        if (cy === undefined) cy = unit.visualRow * this.tileSize + this.tileSize / 2 + (unit.animOffset?.y || 0);
 
         let r = this.tileSize * 0.4;
         if (unit.type === 'kitchen_demon') r *= 1.5; // Kitchen Demon is huge
 
-        // Turn over? Darken
-        if (unit.isTurnOver() && unit.owner === 'player') {
-            this.ctx.globalAlpha = 0.6;
+        // 1. Draw Team Base (Ring under feet)
+        this.ctx.save();
+        this.ctx.beginPath();
+        this.ctx.ellipse(cx, cy + r * 0.8, r * 0.8, r * 0.3, 0, 0, Math.PI * 2);
+        this.ctx.fillStyle = unit.owner === 'player' ? 'rgba(0, 255, 0, 0.4)' : 'rgba(255, 0, 0, 0.4)';
+        this.ctx.fill();
+        this.ctx.restore();
+
+        // 2. Turn over? Stronger Darken
+        const isExhausted = unit.isTurnOver() && unit.owner === 'player';
+        if (isExhausted) {
+            this.ctx.globalAlpha = 0.45;
         }
 
-        // Draw Image or Fallback Circle
+        // 3. Draw Image or Fallback Circle
         if (this.images[unit.type]) {
-            const size = this.tileSize * 0.8;
-            this.ctx.drawImage(this.images[unit.type], cx - size / 2, cy - size / 2, size, size);
+            this.drawImageCentered(this.images[unit.type], cx, cy, this.tileSize * 0.8);
         } else {
             // Body Fallback
             this.ctx.fillStyle = unit.color;
@@ -87,33 +114,37 @@ export default class Renderer {
             this.ctx.stroke();
         }
 
+        if (isExhausted) {
+            // Add a slight grey tint overlay to further distinguish exhausted state
+            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            this.ctx.beginPath();
+            this.ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            this.ctx.fill();
+        }
+
         this.ctx.globalAlpha = 1.0;
 
-        // HP Bar
-        const hpW = 30;
+        // 4. HP Bar (Color-coded by side)
+        const hpW = 38;
         const hpH = 4;
-        const barTop = cy + r + 5;
-        this.ctx.fillStyle = '#f00';
+        const barTop = cy + r - 2;
+        this.ctx.fillStyle = '#444'; // Background of bar
         this.ctx.fillRect(cx - hpW / 2, barTop, hpW, hpH);
-        this.ctx.fillStyle = '#0f0';
+
+        // Fill color based on owner
+        this.ctx.fillStyle = unit.owner === 'player' ? '#0f0' : '#f00';
         this.ctx.fillRect(cx - hpW / 2, barTop, hpW * (unit.hp / unit.maxHp), hpH);
 
-        // Name
-        this.ctx.fillStyle = '#fff';
-        this.ctx.font = 'bold 12px Arial';
+        // Name (At the very bottom of the tile)
+        const nameY = cy + r + 4;
+        this.ctx.fillStyle = isExhausted ? '#888' : '#fff';
+        this.ctx.font = 'bold 11px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.textBaseline = 'middle';
+        this.ctx.textBaseline = 'top';
         this.ctx.lineWidth = 3;
         this.ctx.strokeStyle = '#000';
-        this.ctx.strokeText(unit.getName(), cx, cy);
-        this.ctx.fillText(unit.getName(), cx, cy);
-
-        // Turn Over Indicator
-        if (unit.isTurnOver() && unit.owner === 'player') {
-            this.ctx.fillStyle = '#bbb';
-            this.ctx.font = 'bold 16px Arial';
-            this.ctx.fillText("Zzz", cx + r, cy - r);
-        }
+        this.ctx.strokeText(unit.getName(), cx, nameY);
+        this.ctx.fillText(unit.getName(), cx, nameY);
 
         // Stun Indicator
         if (unit.stunnedTurns > 0) {
@@ -276,5 +307,71 @@ export default class Renderer {
     // Helper to find recipes for shop card
     getRecipesForType(type) {
         return RECIPES.filter(r => r.ingredients.includes(type));
+    }
+
+    drawCutin(data, timer) {
+        // Use logical pixels (clientWidth/Height) instead of buffer pixels (width/height)
+        const width = this.ctx.canvas.clientWidth || 800;
+        const height = this.ctx.canvas.clientHeight || 600;
+        const progress = 1.0 - timer; // 0 to 1
+
+        // 1. Dim Background
+        this.ctx.save();
+        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        this.ctx.fillRect(0, 0, width, height);
+
+        // 2. Banner Strip
+        this.ctx.fillStyle = 'rgba(218, 165, 32, 0.8)'; // Goldenrod
+        const bannerH = 120;
+        const bannerY = height / 2 - bannerH / 2;
+        this.ctx.fillRect(0, bannerY, width, bannerH);
+
+        this.ctx.strokeStyle = '#fff';
+        this.ctx.lineWidth = 4;
+        this.ctx.beginPath();
+        this.ctx.moveTo(0, bannerY);
+        this.ctx.lineTo(width, bannerY);
+        this.ctx.moveTo(0, bannerY + bannerH);
+        this.ctx.lineTo(width, bannerY + bannerH);
+        this.ctx.stroke();
+
+        // 3. Portait Animations (In from sides)
+        const portraitSize = 240;
+        const slideDist = width * 0.25;
+
+        // Easing for slide (first 0.4s)
+        const slideProgress = Math.min(1.0, progress * 2.5);
+        const easeOut = 1 - Math.pow(1 - slideProgress, 3);
+
+        // Position: Meet in the middle-ish
+        const leftX = -portraitSize / 2 + (slideDist + portraitSize / 2) * easeOut;
+        const rightX = width + portraitSize / 2 - (slideDist + portraitSize / 2) * easeOut;
+        const portraitY = height / 2;
+
+        // Draw Left (Source)
+        if (this.images[data.sourceType]) {
+            this.drawImageCentered(this.images[data.sourceType], leftX, portraitY, portraitSize);
+        }
+
+        // Draw Right (Partner)
+        if (data.partnerType && this.images[data.partnerType]) {
+            this.drawImageCentered(this.images[data.partnerType], rightX, portraitY, portraitSize);
+        }
+
+        // 4. Skill Name text
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = 'italic bold 40px Arial';
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+
+        // Shadow for text
+        this.ctx.shadowColor = 'rgba(0,0,0,0.8)';
+        this.ctx.shadowBlur = 10;
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeStyle = '#000';
+        this.ctx.strokeText(data.recipeName, width / 2, height / 2);
+        this.ctx.fillText(data.recipeName, width / 2, height / 2);
+
+        this.ctx.restore();
     }
 }
