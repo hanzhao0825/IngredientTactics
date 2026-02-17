@@ -18,7 +18,7 @@ export default class Game {
         this.renderer = new Renderer(this.ctx, this.tileSize);
         this.recipeSystem = new RecipeSystem();
         this.units = [];
-        this.gold = 10;
+        this.gold = 0;
         this.benchUnits = []; // Store Unit instances
         this.battleLevel = 1; // Current Level Count
 
@@ -53,11 +53,11 @@ export default class Game {
         // Init
         this.initLevel();
 
-        // Initialize Recipe Book Button
-        this.createRecipeBookButton();
-
         // End Turn Button
         this.createEndTurnButton();
+
+        // Initial UI Refresh (Shows Level 1 HUD)
+        this.closeUI();
     }
 
     initLevel() {
@@ -65,10 +65,9 @@ export default class Game {
         this.addUnit('potato', 1, 1, 'player');
         this.addUnit('pork', 1, 2, 'player');
 
-        // Enemies
+        // Enemies (Reduced to 2 for first level)
         this.addUnit('trash', 4, 1, 'enemy');
-        this.addUnit('trash', 5, 3, 'enemy');
-        this.addUnit('trash', 4, 2, 'enemy');
+        this.addUnit('trash', 4, 3, 'enemy');
     }
 
     addUnit(type, col, row, owner) {
@@ -643,6 +642,24 @@ export default class Game {
         this.aoeHighlights = [];
         this.createEndTurnButton(); // Refill End Turn
         this.createRecipeBookButton(); // Refill Recipe Book
+        this.updateLevelDisplay(); // Refill Level Display
+    }
+
+    updateLevelDisplay() {
+        const levelDiv = document.createElement('div');
+        levelDiv.id = 'level-display';
+        levelDiv.innerText = `第 ${this.battleLevel} 关`;
+        levelDiv.style.position = 'absolute';
+        levelDiv.style.top = '10px';
+        levelDiv.style.left = '10px';
+        levelDiv.style.background = 'rgba(0, 0, 0, 0.6)';
+        levelDiv.style.color = 'gold';
+        levelDiv.style.padding = '5px 15px';
+        levelDiv.style.borderRadius = '5px';
+        levelDiv.style.fontWeight = 'bold';
+        levelDiv.style.fontSize = '18px';
+        levelDiv.style.pointerEvents = 'none';
+        this.uiLayer.appendChild(levelDiv);
     }
 
     createEndTurnButton() {
@@ -900,19 +917,28 @@ export default class Game {
             this.units.push(u);
         });
 
-        // 2. Generate New Enemies (Buffed)
-        const enemyCount = Math.min(6, 3 + Math.floor(this.battleLevel / 2) + Math.floor(Math.random() * 2));
+        // 2. Generate New Enemies (Deterministic count, random positions)
+        const enemyCount = Math.min(8, 2 + Math.floor(this.battleLevel / 3));
         for (let i = 0; i < enemyCount; i++) {
-            const r = Math.floor(Math.random() * this.rows);
-            const c = 3 + Math.floor(Math.random() * 3); // Spread in col 3-5
-            if (!this.getUnitAt(c, r)) {
-                const enemy = this.addUnit('trash', c, r, 'enemy');
-                const targetLevel = Math.max(1, Math.floor(this.battleLevel / 1.2)); // Aggressive scaling
-                while (enemy.level < targetLevel) {
-                    enemy.upgrade();
+            let placed = false;
+            let attempts = 0;
+            while (!placed && attempts < 20) {
+                const r = Math.floor(Math.random() * this.rows);
+                const c = 3 + Math.floor(Math.random() * 3); // Cols 3-5
+
+                if (!this.getUnitAt(c, r)) {
+                    const enemy = this.addUnit('trash', c, r, 'enemy');
+                    const targetLevel = Math.max(1, Math.floor(this.battleLevel / 1.5));
+                    while (enemy.level < targetLevel) {
+                        enemy.upgrade();
+                    }
+                    placed = true;
                 }
+                attempts++;
             }
         }
+
+        this.closeUI(); // Refresh HUD to show new level number instantly
     }
 
     drawShop() {
