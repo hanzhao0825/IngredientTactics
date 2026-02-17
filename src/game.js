@@ -16,8 +16,12 @@ export default class Game {
         // High DPI Support
         this.setupCanvas();
 
-        // Calculate tileSize to fill available CSS height
-        this.tileSize = Math.floor(this.height / this.rows * 0.9);
+        // Calculate tileSize accounting for 7 total rows (6 battle + 1 bench)
+        // Use smaller of width-based or height-based to ensure it fits
+        const totalRows = 7; // 6 battle rows + 1 bench row
+        const widthBasedSize = Math.floor(this.width / this.cols);
+        const heightBasedSize = Math.floor(this.height / totalRows);
+        this.tileSize = Math.min(widthBasedSize, heightBasedSize) * 0.95; // 95% to add padding
 
         // Systems
         this.grid = new Grid(this.cols, this.rows);
@@ -320,8 +324,9 @@ export default class Game {
             return;
         }
 
-        // Bench Click Detection (Y > rows * tileSize)
-        if (y > 480) {
+        // Bench Click Detection (Y >= rows * tileSize)
+        const benchY = this.rows * this.tileSize;
+        if (y >= benchY) {
             this.handleBenchClick(x, y);
             return;
         }
@@ -1213,20 +1218,23 @@ export default class Game {
     }
 
     drawBench() {
-        // Panel at bottom
+        // Panel at bottom (row 7, after the 6x6 battle grid)
+        const benchY = this.rows * this.tileSize;
+        const benchHeight = this.tileSize;
+
         this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        this.ctx.fillRect(0, 512, this.canvas.width, 88);
+        this.ctx.fillRect(0, benchY, this.width, benchHeight);
         this.ctx.strokeStyle = '#fff';
-        this.ctx.strokeRect(0, 512, this.canvas.width, 88);
+        this.ctx.strokeRect(0, benchY, this.width, benchHeight);
 
         this.benchUnits.forEach((u, i) => {
-            const bx = i * (this.tileSize + 10) + 40;
-            const by = 512 + 40;
+            const bx = i * this.tileSize + this.tileSize / 2;
+            const by = benchY + this.tileSize / 2;
 
             // Highlight if selected
             if (this.selectedUnit === u) {
                 this.ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-                this.ctx.fillRect(bx - 32, by - 32, 64, 64);
+                this.ctx.fillRect(i * this.tileSize, benchY, this.tileSize, this.tileSize);
             }
 
             this.renderer.drawUnit(u, bx, by);
@@ -1234,7 +1242,8 @@ export default class Game {
     }
 
     handleBenchClick(x, y) {
-        const index = Math.floor((x - 10) / (this.tileSize + 10));
+        // Calculate which bench slot was clicked (now aligned to grid)
+        const index = Math.floor(x / this.tileSize);
         if (index >= 0 && index < this.benchUnits.length) {
             const unit = this.benchUnits[index];
             this.selectedUnit = unit;
@@ -1247,6 +1256,7 @@ export default class Game {
                 }
             }
         } else {
+            // Clicked on empty bench area - deselect
             this.selectedUnit = null;
             this.state = 'IDLE';
             this.highlights = [];

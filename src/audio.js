@@ -1,8 +1,6 @@
 export default class AudioManager {
     constructor() {
         this.context = null;
-        this.bgmNode = null;
-        this.bgmSource = null;
         this.masterGain = null;
         this.isMuted = false;
         this.isInitialized = false;
@@ -24,127 +22,27 @@ export default class AudioManager {
     }
 
     playBGM(url) {
-        if (!this.context) return;
-
         // Stop existing BGM
         this.stopBGM();
 
-        // Try to load external audio file
+        // Load external audio file
         this.bgmAudioElement = new Audio(url);
         this.bgmAudioElement.loop = true;
         this.bgmAudioElement.volume = this.isMuted ? 0 : 1;
 
         this.bgmAudioElement.play().then(() => {
-            console.log('External BGM loaded:', url);
+            console.log('BGM loaded:', url);
         }).catch(err => {
-            console.warn('Failed to load external BGM, using procedural:', err);
-            this.generateProceduralBGM();
+            console.error('Failed to load BGM:', err);
         });
     }
 
     stopBGM() {
-        // Stop procedural BGM
-        if (this.bgmNode) {
-            try {
-                this.bgmNode.stop();
-            } catch (e) {
-                // Already stopped
-            }
-            this.bgmNode = null;
-        }
-
         // Stop HTML5 Audio
         if (this.bgmAudioElement) {
             this.bgmAudioElement.pause();
             this.bgmAudioElement = null;
         }
-    }
-
-    generateProceduralBGM() {
-        if (!this.context) return;
-
-        // Stop existing BGM
-        this.stopBGM();
-
-        // Create a simple melodic loop using oscillators
-        const now = this.context.currentTime;
-        const tempo = 120; // BPM
-        const beatDuration = 60 / tempo;
-        const loopDuration = beatDuration * 16; // 16-beat loop
-
-        // Melody notes (C major pentatonic scale for a cheerful vibe)
-        const melody = [
-            { note: 523.25, start: 0, duration: 0.5 },    // C5
-            { note: 587.33, start: 0.5, duration: 0.5 },  // D5
-            { note: 659.25, start: 1, duration: 0.5 },    // E5
-            { note: 783.99, start: 1.5, duration: 0.5 },  // G5
-            { note: 659.25, start: 2, duration: 0.5 },    // E5
-            { note: 587.33, start: 2.5, duration: 0.5 },  // D5
-            { note: 523.25, start: 3, duration: 1 },      // C5
-            { note: 392.00, start: 4, duration: 0.5 },    // G4
-            { note: 523.25, start: 4.5, duration: 0.5 },  // C5
-            { note: 587.33, start: 5, duration: 0.5 },    // D5
-            { note: 659.25, start: 5.5, duration: 0.5 },  // E5
-            { note: 587.33, start: 6, duration: 1 },      // D5
-            { note: 523.25, start: 7, duration: 1 },      // C5
-        ];
-
-        // Bass line (simple root notes)
-        const bass = [
-            { note: 130.81, start: 0, duration: 2 },      // C3
-            { note: 146.83, start: 2, duration: 2 },      // D3
-            { note: 164.81, start: 4, duration: 2 },      // E3
-            { note: 130.81, start: 6, duration: 2 },      // C3
-        ];
-
-        const scheduleLoop = (startTime) => {
-            // Melody
-            melody.forEach(({ note, start, duration }) => {
-                const osc = this.context.createOscillator();
-                const gain = this.context.createGain();
-
-                osc.type = 'square';
-                osc.frequency.value = note;
-
-                gain.gain.setValueAtTime(0, startTime + start);
-                gain.gain.linearRampToValueAtTime(0.08, startTime + start + 0.01);
-                gain.gain.exponentialRampToValueAtTime(0.01, startTime + start + duration);
-
-                osc.connect(gain);
-                gain.connect(this.masterGain);
-
-                osc.start(startTime + start);
-                osc.stop(startTime + start + duration);
-            });
-
-            // Bass
-            bass.forEach(({ note, start, duration }) => {
-                const osc = this.context.createOscillator();
-                const gain = this.context.createGain();
-
-                osc.type = 'sawtooth';
-                osc.frequency.value = note;
-
-                gain.gain.setValueAtTime(0.12, startTime + start);
-                gain.gain.exponentialRampToValueAtTime(0.01, startTime + start + duration);
-
-                osc.connect(gain);
-                gain.connect(this.masterGain);
-
-                osc.start(startTime + start);
-                osc.stop(startTime + start + duration);
-            });
-
-            // Schedule next loop
-            setTimeout(() => {
-                if (this.context && this.context.state === 'running' && !this.bgmAudioElement) {
-                    scheduleLoop(this.context.currentTime);
-                }
-            }, loopDuration * 1000 - 100); // Schedule slightly before end
-        };
-
-        scheduleLoop(now);
-        console.log('Procedural BGM started');
     }
 
     playSFX(type) {

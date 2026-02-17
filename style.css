@@ -16,8 +16,8 @@ body {
     border-radius: 8px;
     overflow: hidden;
     width: 95%;
-    max-width: 800px;
-    aspect-ratio: 4 / 3;
+    max-width: 700px;
+    aspect-ratio: 6 / 7;
 }
 
 canvas {
